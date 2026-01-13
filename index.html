@@ -3,16 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HortiLight - 专业测试报告生成器 v4.2</title>
+    <title>HortiLight - 专业测试报告生成器 v6.1</title>
     
     <!-- 样式库 -->
     <link href="https://cdn.staticfile.org/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
     
-    <!-- 核心库 -->
-    <script src="https://cdn.staticfile.org/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <script src="https://cdn.staticfile.org/react/18.2.0/umd/react.development.js"></script>
-    <script src="https://cdn.staticfile.org/react-dom/18.2.0/umd/react-dom.development.js"></script>
-    <script src="https://cdn.staticfile.org/babel-standalone/7.22.20/babel.min.js"></script>
+    <!-- 核心库 (添加 crossorigin) -->
+    <script src="https://cdn.staticfile.org/xlsx/0.18.5/xlsx.full.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.staticfile.org/react/18.2.0/umd/react.production.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.staticfile.org/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.staticfile.org/babel-standalone/7.22.20/babel.min.js" crossorigin="anonymous"></script>
     
     <style>
         body { background-color: #f8fafc; font-family: system-ui, -apple-system, sans-serif; }
@@ -32,12 +32,18 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+        const { useState, useEffect, useRef, Component } = React;
+
+        // --- Error Boundary ---
+        class ErrorBoundary extends Component {
+            constructor(props) { super(props); this.state = { hasError: false }; }
+            static getDerivedStateFromError(error) { return { hasError: true }; }
+            componentDidCatch(error, errorInfo) { console.error(error, errorInfo); }
+            render() { if (this.state.hasError) return <div className="p-8 text-center text-red-600">出错了，请刷新页面重试。</div>; return this.props.children; }
+        }
 
         // --- 辅助函数 ---
-        // 颜色插值 (纯橙色系: 从 极浅橙 到 鲜亮橙)
         const getColor = (ratio) => {
-            // ratio 0 ~ 1
             const rRatio = 0.1 + (ratio * 0.9);
             const start = { r: 255, g: 250, b: 240 };
             const end = { r: 255, g: 140, b: 0 };
@@ -47,42 +53,33 @@
             return `rgb(${r}, ${g}, ${b})`;
         };
 
-        const cmToFt = (cm) => (cm / 30.48).toFixed(1);
-
         // --- 图标组件 ---
         const Icon = ({ name, size = 18, className }) => {
             const paths = {
                 upload: <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>,
                 download: <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>,
-                copy: <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>,
-                chart: <path d="M12 20V10M18 20V4M6 20v-6"/>,
             };
             return (
                 <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-                    {paths[name]}
+                    {paths[name] || <circle cx="12" cy="12" r="10" />}
                 </svg>
             );
         };
 
-        // --- 1. 光谱图绘制 (百分比在底部) ---
+        // --- 1. 光谱图 ---
         function drawSpectrum(canvas, data, titleStr) {
             if (!canvas || !data || data.length === 0) return;
             const ctx = canvas.getContext('2d');
             const w = canvas.width; const h = canvas.height;
-            // 底部留更多空间给百分比数据
             const padding = { top: 40, right: 30, bottom: 70, left: 50 }; 
             const plotW = w - padding.left - padding.right;
             const plotH = h - padding.top - padding.bottom;
 
             ctx.fillStyle = "white"; ctx.fillRect(0, 0, w, h);
-            
-            // 标题
             ctx.fillStyle = "#334155"; ctx.font = "16px sans-serif"; ctx.textAlign = "center";
             ctx.fillText(titleStr || "Spectral Analysis", w/2, 25);
 
-            // --- 计算占比 ---
             let totalInt = 0;
-            // 为了保持顺序，使用数组
             let ranges = [
                 { name: 'UV', label: 'UV', min: 0, max: 399, sum: 0, color: '#8b00ff', center: 390 },
                 { name: 'Blue', label: 'Blue', min: 400, max: 499, sum: 0, color: '#0000ff', center: 450 },
@@ -98,10 +95,8 @@
                 if (range) range.sum += d.intensity;
                 return d.intensity;
             }));
-            const normData = data.map(d => ({ ...d, val: d.intensity / maxInt }));
+            const normData = data.map(d => ({ ...d, val: d.intensity / (maxInt || 1) }));
 
-            // --- 绘制图表 ---
-            // 渐变填充
             const grad = ctx.createLinearGradient(padding.left, 0, padding.left + plotW, 0);
             grad.addColorStop(0, "#8b00ff"); grad.addColorStop(0.25, "#0000ff");
             grad.addColorStop(0.45, "#00ff00"); grad.addColorStop(0.6, "#ffff00");
@@ -117,50 +112,36 @@
             ctx.lineTo(w - padding.right, h - padding.bottom);
             ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
 
-            // 边框
             ctx.strokeStyle = "#cbd5e1"; ctx.lineWidth = 1;
             ctx.strokeRect(padding.left, padding.top, plotW, plotH);
             
-            // X轴刻度 (波长)
             ctx.fillStyle = "#94a3b8"; ctx.font = "10px sans-serif"; ctx.textAlign = "center";
             [380, 480, 580, 680, 780].forEach(wl => {
                 const x = padding.left + ((wl - 380) / 400) * plotW;
                 ctx.fillText(wl, x, h - padding.bottom + 15);
-                // 小刻度线
                 ctx.beginPath(); ctx.moveTo(x, h - padding.bottom); ctx.lineTo(x, h - padding.bottom + 4); ctx.stroke();
             });
 
-            // --- 底部百分比数据 ---
             const dataY = h - 20;
+            const safeTotal = totalInt || 1;
             ranges.forEach(r => {
-                if (r.center < 380 || r.center > 780 && r.name !== 'IR' && r.name !== 'UV') return; // 简单边界检查
-                
-                // 计算 x 位置
+                if (r.center < 380 || r.center > 780 && r.name !== 'IR' && r.name !== 'UV') return;
                 let x = padding.left + ((r.center - 380) / 400) * plotW;
-                // 边界修正
                 if(x < padding.left) x = padding.left + 10;
                 if(x > w - padding.right) x = w - padding.right - 10;
 
-                const pct = ((r.sum / totalInt) * 100).toFixed(1) + "%";
-                
-                // 绘制名称
-                ctx.fillStyle = r.color;
-                ctx.font = "bold 11px sans-serif";
-                ctx.textAlign = "center";
+                const pct = ((r.sum / safeTotal) * 100).toFixed(1) + "%";
+                ctx.fillStyle = r.color; ctx.font = "bold 11px sans-serif"; ctx.textAlign = "center";
                 ctx.fillText(r.label, x, dataY - 12);
-                
-                // 绘制数值
-                ctx.fillStyle = "#334155";
-                ctx.font = "11px sans-serif";
+                ctx.fillStyle = "#334155"; ctx.font = "11px sans-serif";
                 ctx.fillText(pct, x, dataY);
             });
         }
 
-        // --- 2. PPFD 热力图 (优雅简洁版) ---
+        // --- 2. PPFD 热力图 ---
         function drawHeatmap(canvas, grid, title) {
             if (!canvas || !grid || grid.length === 0) return;
             const ctx = canvas.getContext('2d');
-            
             const rows = grid.length;
             const cols = grid[0].length;
             const cellSize = 70;
@@ -172,8 +153,7 @@
             canvas.height = targetH;
             
             ctx.fillStyle = "white"; ctx.fillRect(0, 0, targetW, targetH);
-
-            // 标题优化: 14px, 正常粗细, 颜色淡一点
+            // 标题更优雅: 14px, 深灰
             ctx.fillStyle = "#475569"; ctx.font = "14px sans-serif"; ctx.textAlign = "center";
             ctx.fillText(title, targetW/2, 25);
 
@@ -181,135 +161,108 @@
             const minVal = Math.min(...flat);
             const maxVal = Math.max(...flat);
             const valRange = maxVal - minVal || 1;
-
             const startX = padding.left;
             const startY = padding.top;
-
-            // --- A. 绘制平滑渐变背景 ---
             const subDiv = 10; 
+
+            // 平滑背景
             for (let r = 0; r < rows - 1; r++) {
                 for (let c = 0; c < cols - 1; c++) {
                     const vTL = grid[r][c];
                     const vTR = grid[r][c+1];
                     const vBL = grid[r+1][c];
                     const vBR = grid[r+1][c+1];
-
                     for (let sy = 0; sy < subDiv; sy++) {
                         for (let sx = 0; sx < subDiv; sx++) {
                             const py = sy / subDiv;
                             const px = sx / subDiv;
                             const val = (1-px)*(1-py)*vTL + px*(1-py)*vTR + (1-px)*py*vBL + px*py*vBR;
-                            
                             const ratio = (val - minVal) / valRange;
                             ctx.fillStyle = getColor(ratio);
-                            
                             const cellX = startX + c * cellSize;
                             const cellY = startY + r * cellSize;
-                            ctx.fillRect(
-                                cellX + (sx * cellSize / subDiv), 
-                                cellY + (sy * cellSize / subDiv), 
-                                (cellSize / subDiv) + 0.5, 
-                                (cellSize / subDiv) + 0.5
-                            );
+                            ctx.fillRect(cellX + (sx * cellSize/subDiv), cellY + (sy * cellSize/subDiv), (cellSize/subDiv)+0.5, (cellSize/subDiv)+0.5);
                         }
                     }
                 }
             }
 
-            // --- B. 绘制网格线 (变细, 优雅) ---
-            ctx.strokeStyle = "rgba(255,255,255,0.5)"; 
-            ctx.lineWidth = 0.5; // 极细网格线
-            
-            // 垂直线
+            // 极细网格线
+            ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = 0.5;
             for (let c = 0; c < cols; c++) {
                 const x = startX + c * cellSize;
                 ctx.beginPath(); ctx.moveTo(x, startY); ctx.lineTo(x, startY + (rows-1)*cellSize); ctx.stroke();
             }
-            // 水平线
             for (let r = 0; r < rows; r++) {
                 const y = startY + r * cellSize;
                 ctx.beginPath(); ctx.moveTo(startX, y); ctx.lineTo(startX + (cols-1)*cellSize, y); ctx.stroke();
             }
 
-            // 外框 (变细)
+            // 细边框
             ctx.strokeStyle = "#94a3b8"; ctx.lineWidth = 1; 
             ctx.strokeRect(startX, startY, (cols-1)*cellSize, (rows-1)*cellSize);
 
-            // --- C. 绘制交叉点数值 (缩小, 不加粗) ---
+            // 交叉点数值 (不加粗, 小字号)
             for (let r = 0; r < rows; r++) {
                 for (let c = 0; c < cols; c++) {
                     const val = grid[r][c];
                     const x = startX + c * cellSize;
                     const y = startY + r * cellSize;
-                    
-                    // 样式优化: 9px, 非粗体
-                    ctx.font = "9px Arial";
-                    ctx.textAlign = "center"; ctx.textBaseline = "middle";
-                    
-                    // 减弱光晕: 更细, 透明度更高
-                    ctx.strokeStyle = "rgba(255,255,255,0.7)";
-                    ctx.lineWidth = 2; 
+                    ctx.font = "9px Arial"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+                    ctx.strokeStyle = "rgba(255,255,255,0.7)"; ctx.lineWidth = 2; 
                     ctx.strokeText(val.toFixed(2), x, y);
-                    
-                    ctx.fillStyle = "#334155"; // 稍微深灰一点，不完全黑，更有质感
+                    ctx.fillStyle = "#334155";
                     ctx.fillText(val.toFixed(2), x, y);
                 }
             }
         }
 
-        // --- 3. 锥形图 (4个高度推算) ---
+        // --- 3. 锥形图 (支持单位显示) ---
         function drawCone(canvas, data, titleStr) {
-            if (!canvas || !data || data.heights.length < 2) return;
+            if (!canvas || !data || !data.heights || data.heights.length < 4) return;
             const ctx = canvas.getContext('2d');
             const w = canvas.width; const h = canvas.height;
             
             ctx.fillStyle = "white"; ctx.fillRect(0, 0, w, h);
-            
             ctx.fillStyle = "#334155"; ctx.font = "bold 16px sans-serif"; ctx.textAlign = "center";
             ctx.fillText(titleStr || "Cone Diagram", w/2, 25);
 
-            // 1. 数据准备
-            const h1 = data.heights[0];
-            const h2 = data.heights[1];
-            const step = h2 - h1;
-            
-            const fullHeights = [h1, h2, h2 + step, h2 + step * 2];
-            const v2 = data.vals[1];
-            const k = v2 * (h2 * h2); 
+            // 计算绘图用的高度 (cm)
+            const cmHeights = data.heights;
+            // 获取原始输入高度和单位
+            const rawHeights = data.rawHeights;
+            const unit = data.unit;
+
+            // 推算强度 (使用 H2)
+            const h2_cm = cmHeights[1];
+            const v2 = (data.vals && data.vals.length > 1) ? data.vals[1] : 0;
+            const k = v2 * (h2_cm * h2_cm); 
             
             const fullVals = [
-                data.vals[0],
-                data.vals[1],
-                k / Math.pow(fullHeights[2], 2),
-                k / Math.pow(fullHeights[3], 2)
+                (data.vals && data.vals.length > 0) ? data.vals[0] : 0,
+                v2,
+                cmHeights[2] > 0 ? k / Math.pow(cmHeights[2], 2) : 0, 
+                cmHeights[3] > 0 ? k / Math.pow(cmHeights[3], 2) : 0
             ];
 
             const centerX = w / 2;
             const topY = 60;
             const bottomY = h - 40;
             const availH = bottomY - topY;
-
-            const maxH = fullHeights[3];
+            const maxH = Math.max(...cmHeights) || 100;
             const scaleY = availH / (maxH * 1.15); 
 
-            // 2. 轴线
             ctx.strokeStyle = "#cbd5e1"; ctx.lineWidth = 1; ctx.setLineDash([5, 5]);
             ctx.beginPath(); ctx.moveTo(centerX, topY); ctx.lineTo(centerX, bottomY); ctx.stroke();
             ctx.setLineDash([]);
-
-            // 3. 灯源
             ctx.fillStyle = "#fbbf24"; 
             ctx.beginPath(); ctx.arc(centerX, topY, 6, 0, Math.PI*2); ctx.fill();
 
-            // 4. 绘制光斑 (4层)
-            const maxVal = Math.max(...fullVals);
-            
-            fullHeights.forEach((height, i) => {
+            const maxVal = Math.max(...fullVals) || 1;
+            cmHeights.forEach((h_cm, i) => {
                 const val = fullVals[i];
-                const y = topY + (height * scaleY);
-                const radius = height * scaleY * 0.55; 
-                
-                // 颜色 (使用新的橙色逻辑)
+                const y = topY + (h_cm * scaleY);
+                const radius = Math.abs(h_cm * scaleY * 0.55); 
                 const opacity = 0.2 + (val / maxVal) * 0.6;
                 const ratio = val / maxVal;
                 
@@ -317,23 +270,22 @@
                 ctx.ellipse(centerX, y, radius, radius * 0.25, 0, 0, Math.PI * 2);
                 ctx.fillStyle = getColor(ratio).replace(')', `, ${opacity})`).replace('rgb', 'rgba');
                 ctx.fill();
-                ctx.strokeStyle = "rgba(234, 88, 12, 0.5)";
-                ctx.lineWidth = 1; ctx.stroke();
+                ctx.strokeStyle = "rgba(234, 88, 12, 0.5)"; ctx.lineWidth = 1; ctx.stroke();
 
-                // 标注线
                 ctx.strokeStyle = "#94a3b8"; ctx.lineWidth = 1;
                 
-                // 左侧: 高度
-                const labelH = `${cmToFt(height)}ft / ${Math.round(height)}cm`;
+                // --- 标签显示：原始单位 / cm ---
+                // 例如: "36 in / 91 cm"
+                const rawH = rawHeights[i];
+                const labelH = `${rawH} ${unit} / ${Math.round(h_cm)} cm`;
+                
                 ctx.beginPath(); ctx.moveTo(centerX - radius, y); ctx.lineTo(centerX - radius - 30, y); ctx.stroke();
                 ctx.fillStyle = "#475569"; ctx.font = "11px sans-serif"; ctx.textAlign = "right"; ctx.textBaseline = "middle";
                 ctx.fillText(labelH, centerX - radius - 35, y);
 
-                // 右侧: 数值
                 const labelV = `${val.toFixed(2)} µmol/s/m²`;
                 ctx.beginPath(); ctx.moveTo(centerX + radius, y); ctx.lineTo(centerX + radius + 30, y); ctx.stroke();
-                ctx.textAlign = "left";
-                ctx.font = "bold 11px sans-serif";
+                ctx.textAlign = "left"; ctx.font = "bold 11px sans-serif";
                 ctx.fillText(labelV, centerX + radius + 35, y);
             });
         }
@@ -360,30 +312,85 @@
                         const data = new Uint8Array(e.target.result);
                         const wb = XLSX.read(data, {type:'array'});
                         
-                        // 1. 读取 Sheet1
-                        const sheet1 = XLSX.utils.sheet_to_json(wb.Sheets['Sheet1'] || wb.Sheets[wb.SheetNames[0]]);
-                        const metaRow = sheet1[0] || {}; 
-                        const h1_cm = parseFloat(metaRow['H1_cm'] || 30);
-                        const h2_cm = parseFloat(metaRow['H2_cm'] || 60);
+                        // 1. 查找目标 Sheet
+                        let targetSheetName = wb.SheetNames.find(n => n.trim() === "PPFD测试方法第一版");
+                        if (!targetSheetName) targetSheetName = wb.SheetNames.find(n => n.includes("PPFD"));
+                        if (!targetSheetName) targetSheetName = wb.SheetNames[0];
 
-                        // 2. 光谱
+                        const targetSheet = wb.Sheets[targetSheetName];
+                        const sheetRaw = XLSX.utils.sheet_to_json(targetSheet, {header: 1});
+                        
+                        // 2. 读取单位 (C2) - 0-indexed: Row 1, Col 2
+                        let unitStr = "in"; // 默认
+                        let multiplier = 2.54; // 默认英寸
+                        
+                        // 安全读取 C2
+                        const c2Cell = targetSheet['C2'];
+                        if (c2Cell && c2Cell.v) {
+                            const val = c2Cell.v.toString().toLowerCase();
+                            if (val.includes('ft') || val.includes('feet') || val.includes('英尺')) {
+                                unitStr = "ft";
+                                multiplier = 30.48;
+                            }
+                        }
+
+                        // 3. 读取高度数值 (D2, E2, F2, G2)
+                        const getVal = (addr) => {
+                            const cell = targetSheet[addr];
+                            return cell ? parseFloat(cell.v) : NaN;
+                        };
+
+                        const h1_raw = getVal('D2');
+                        const h2_raw = getVal('E2');
+                        const h3_raw = getVal('F2');
+                        const h4_raw = getVal('G2');
+
+                        if (isNaN(h1_raw) && isNaN(h2_raw)) {
+                            // 虽然这里可能报错，但为防止崩溃，给默认值
+                            console.warn("未能读取到 D2/E2 数据，使用默认值");
+                        }
+
+                        // 逻辑处理：如果有值则转换，无值则默认/推算
+                        // 为了界面显示，我们需要保留 "原始输入值" (raw) 和 "计算用的cm值" (cm)
+                        let raw1 = !isNaN(h1_raw) ? h1_raw : (unitStr === 'ft' ? 1 : 12); 
+                        let raw2 = !isNaN(h2_raw) ? h2_raw : (unitStr === 'ft' ? 2 : 24);
+                        
+                        const step = raw2 - raw1;
+                        let raw3 = !isNaN(h3_raw) ? h3_raw : raw2 + step;
+                        let raw4 = !isNaN(h4_raw) ? h4_raw : raw3 + step;
+                        
+                        // 负值归零
+                        if (raw3 < 0) raw3 = 0;
+                        if (raw4 < 0) raw4 = 0;
+
+                        // 转换为 cm 用于绘图和物理计算
+                        const h1_cm = raw1 * multiplier;
+                        const h2_cm = raw2 * multiplier;
+                        const h3_cm = raw3 * multiplier;
+                        const h4_cm = raw4 * multiplier;
+
+                        // 4. 光谱数据
                         let specData = [];
-                        if (wb.Sheets['光谱']) {
-                            specData = XLSX.utils.sheet_to_json(wb.Sheets['光谱']).map(row => ({
+                        const specSheetName = wb.SheetNames.find(n => n.includes("光谱"));
+                        if (specSheetName) {
+                            specData = XLSX.utils.sheet_to_json(wb.Sheets[specSheetName]).map(row => ({
+                                wl: row['波长(nm)'], intensity: row['相对光谱']
+                            })).filter(d => d.wl);
+                        } else {
+                            const firstSheet = wb.Sheets[wb.SheetNames[0]];
+                             specData = XLSX.utils.sheet_to_json(firstSheet).map(row => ({
                                 wl: row['波长(nm)'], intensity: row['相对光谱']
                             })).filter(d => d.wl);
                         }
 
-                        // 3. PPFD Grid
-                        const ppfdSheetName = wb.SheetNames.find(n => n.includes("PPFD"));
-                        if (!ppfdSheetName) throw new Error("缺少 PPFD 工作表");
-                        const ppfdRaw = XLSX.utils.sheet_to_json(wb.Sheets[ppfdSheetName], {header:1});
-                        
+                        // 5. PPFD Grid
+                        const ppfdRaw = XLSX.utils.sheet_to_json(targetSheet, {header:1});
                         let startRow = -1;
                         for(let i=0; i<ppfdRaw.length; i++) {
                             if(JSON.stringify(ppfdRaw[i]).includes("A1")) { startRow = i; break; }
                         }
-                        if(startRow === -1) throw new Error("未找到 A1 测试数据");
+                        
+                        if(startRow === -1) throw new Error("未找到 A1 数据标记");
 
                         const points = [];
                         let maxR = 0, maxC = 0;
@@ -415,11 +422,17 @@
 
                         setChartData({
                             spec: specData,
-                            h1: { grid: gridH1, height: h1_cm },
-                            h2: { grid: gridH2, height: h2_cm },
-                            cone: { heights: [h1_cm, h2_cm], vals: [val1, val2] }
+                            h1: { grid: gridH1, height_cm: h1_cm, raw: raw1 },
+                            h2: { grid: gridH2, height_cm: h2_cm, raw: raw2 },
+                            cone: { 
+                                heights: [h1_cm, h2_cm, h3_cm, h4_cm], // cm用于绘图
+                                rawHeights: [raw1, raw2, raw3, raw4], // raw用于显示
+                                unit: unitStr,
+                                vals: [val1, val2] 
+                            }
                         });
-                        setStatus("解析成功");
+                        
+                        setStatus(`解析成功! 模式: ${unitStr}`);
                     } catch(e) {
                         console.error(e);
                         setStatus("错误: " + e.message);
@@ -430,62 +443,57 @@
 
             useEffect(() => {
                 if(chartData) {
-                    drawSpectrum(specRef.current, chartData.spec, `${modelName} - Spectrum`);
-                    drawHeatmap(ppfdH1Ref.current, chartData.h1.grid, `${modelName} - PPFD @ ${chartData.h1.height}cm`);
-                    drawHeatmap(ppfdH2Ref.current, chartData.h2.grid, `${modelName} - PPFD @ ${chartData.h2.height}cm`);
-                    drawCone(coneRef.current, chartData.cone, `${modelName} - Light Cone`);
+                    try {
+                        const unit = chartData.cone.unit;
+                        drawSpectrum(specRef.current, chartData.spec, `${modelName} - Spectrum`);
+                        
+                        // 标题带双单位
+                        const t1 = `${modelName} - PPFD @ ${chartData.h1.raw} ${unit} / ${Math.round(chartData.h1.height_cm)} cm`;
+                        const t2 = `${modelName} - PPFD @ ${chartData.h2.raw} ${unit} / ${Math.round(chartData.h2.height_cm)} cm`;
+                        
+                        drawHeatmap(ppfdH1Ref.current, chartData.h1.grid, t1);
+                        drawHeatmap(ppfdH2Ref.current, chartData.h2.grid, t2);
+                        drawCone(coneRef.current, chartData.cone, `${modelName} - Light Cone`);
+                    } catch(err) {
+                        console.error(err);
+                    }
                 }
             }, [chartData, modelName]);
 
             const download = (ref, suffix) => {
                 if (!ref.current) return;
-                const link = document.createElement('a');
-                link.download = `${modelName}_${suffix}.png`;
-                link.href = ref.current.toDataURL();
-                link.click();
+                try {
+                    const link = document.createElement('a');
+                    link.download = `${modelName}_${suffix}.png`;
+                    link.href = ref.current.toDataURL();
+                    link.click();
+                } catch(e) { alert("下载失败"); }
             };
 
             return (
                 <div className="max-w-7xl mx-auto p-6">
-                    {/* Header: 型号输入移到最上方显眼位置 */}
-                    <header className="mb-8 bg-white p-6 rounded-xl shadow-sm">
-                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-                            
-                            {/* 左侧：标题与状态 */}
-                            <div>
-                                <h1 className="text-2xl font-bold text-slate-800">HortiLight 报告生成器 v4.2</h1>
-                                <p className="text-sm text-slate-500 mt-1">智能插值热力图 / 光谱占比分析 / 锥形图自动推算</p>
-                                {status && <p className="text-sm text-blue-600 mt-2 font-medium">{status}</p>}
+                    <header className="mb-8 bg-white p-6 rounded-xl shadow-sm flex flex-col md:flex-row justify-between items-center gap-6">
+                        <div>
+                            <h1 className="text-2xl font-bold text-slate-800">HortiLight 报告生成器 v6.1</h1>
+                            <p className="text-sm text-slate-500 mt-1">C2单位识别 / 双单位显示 / 界面优化</p>
+                            {status && <p className={`text-sm mt-2 font-medium ${status.includes('错误') ? 'text-red-600' : 'text-blue-600'}`}>{status}</p>}
+                        </div>
+                        <div className="flex gap-4 w-full md:w-auto items-end">
+                            <div className="input-group flex-grow">
+                                <label className="input-label text-blue-800">产品型号</label>
+                                <input type="text" value={modelName} onChange={e => setModelName(e.target.value)} className="input-field border-2 border-blue-100 bg-blue-50 text-lg font-bold text-blue-900 placeholder-blue-300" placeholder="e.g. GL-600W" />
                             </div>
-
-                            {/* 右侧：操作区 */}
-                            <div className="flex flex-col sm:flex-row gap-4 w-full md:w-auto items-stretch sm:items-end">
-                                {/* 型号输入 - 显眼样式 */}
-                                <div className="input-group flex-grow">
-                                    <label className="input-label text-blue-800">产品型号 (Model Name)</label>
-                                    <input 
-                                        type="text" 
-                                        value={modelName} 
-                                        onChange={e => setModelName(e.target.value)} 
-                                        className="input-field border-2 border-blue-100 bg-blue-50 text-lg font-bold text-blue-900 placeholder-blue-300"
-                                        placeholder="请输入型号 e.g. GL-600W"
-                                    />
-                                </div>
-                                
-                                {/* 上传按钮 */}
-                                <div className="relative">
-                                    <input type="file" onChange={e => handleFile(e.target.files[0])} className="hidden" id="upload" />
-                                    <label htmlFor="upload" className="cursor-pointer bg-blue-600 text-white h-[46px] px-6 rounded-lg font-medium hover:bg-blue-700 transition flex items-center justify-center gap-2 shadow-md hover:shadow-lg whitespace-nowrap">
-                                        <Icon name="upload" className="w-5 h-5"/> 上传 Excel
-                                    </label>
-                                </div>
+                            <div className="relative">
+                                <input type="file" onChange={e => handleFile(e.target.files[0])} className="hidden" id="upload" />
+                                <label htmlFor="upload" className="cursor-pointer bg-blue-600 text-white h-[46px] px-6 rounded-lg font-medium hover:bg-blue-700 transition flex items-center justify-center gap-2 shadow-md hover:shadow-lg whitespace-nowrap">
+                                    <Icon name="upload" className="w-5 h-5"/> 上传 Excel
+                                </label>
                             </div>
                         </div>
                     </header>
 
                     {chartData && (
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            {/* 1. 光谱 */}
                             <div className="canvas-card p-4">
                                 <div className="flex justify-between items-center mb-2 px-2">
                                     <h3 className="text-sm font-bold text-slate-700 uppercase">Spectrum Analysis</h3>
@@ -493,8 +501,6 @@
                                 </div>
                                 <canvas ref={specRef} width={600} height={400} className="w-full h-auto"/>
                             </div>
-
-                            {/* 2. 锥形图 */}
                             <div className="canvas-card p-4">
                                 <div className="flex justify-between items-center mb-2 px-2">
                                     <h3 className="text-sm font-bold text-slate-700 uppercase">Light Cone</h3>
@@ -502,21 +508,17 @@
                                 </div>
                                 <canvas ref={coneRef} width={600} height={500} className="w-full h-auto"/>
                             </div>
-
-                            {/* 3. PPFD H1 */}
                             <div className="canvas-card p-4">
                                 <div className="flex justify-between items-center mb-2 px-2">
                                     <h3 className="text-sm font-bold text-slate-700 uppercase">PPFD Map (H1)</h3>
-                                    <button onClick={() => download(ppfdH1Ref, `PPFD_${chartData.h1.height}cm`)} className="text-slate-400 hover:text-blue-600 p-1"><Icon name="download"/></button>
+                                    <button onClick={() => download(ppfdH1Ref, `PPFD_${Math.round(chartData.h1.height_cm)}cm`)} className="text-slate-400 hover:text-blue-600 p-1"><Icon name="download"/></button>
                                 </div>
                                 <canvas ref={ppfdH1Ref} className="w-full h-auto border border-slate-100 rounded"/>
                             </div>
-
-                            {/* 4. PPFD H2 */}
                             <div className="canvas-card p-4">
                                 <div className="flex justify-between items-center mb-2 px-2">
                                     <h3 className="text-sm font-bold text-slate-700 uppercase">PPFD Map (H2)</h3>
-                                    <button onClick={() => download(ppfdH2Ref, `PPFD_${chartData.h2.height}cm`)} className="text-slate-400 hover:text-blue-600 p-1"><Icon name="download"/></button>
+                                    <button onClick={() => download(ppfdH2Ref, `PPFD_${Math.round(chartData.h2.height_cm)}cm`)} className="text-slate-400 hover:text-blue-600 p-1"><Icon name="download"/></button>
                                 </div>
                                 <canvas ref={ppfdH2Ref} className="w-full h-auto border border-slate-100 rounded"/>
                             </div>
@@ -526,7 +528,8 @@
             );
         }
 
-        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<ErrorBoundary><App /></ErrorBoundary>);
     </script>
 </body>
 </html>
