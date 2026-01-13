@@ -1,579 +1,532 @@
 <!DOCTYPE html>
-
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>HortiLight - 智能报告生成器 (AI 增强版)</title>
-
-<!-- 1. 样式库：使用 Staticfile 国内镜像 -->
-<link href="https://cdn.staticfile.org/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
-
-<!-- 2. 核心库：使用 Staticfile 国内镜像 -->
-<script src="https://cdn.staticfile.org/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdn.staticfile.org/react/18.2.0/umd/react.development.js"></script>
-<script src="https://cdn.staticfile.org/react-dom/18.2.0/umd/react-dom.development.js"></script>
-<script src="https://cdn.staticfile.org/babel-standalone/7.22.20/babel.min.js"></script>
-<!-- Markdown 解析库 -->
-<script src="https://cdn.staticfile.org/marked/9.1.2/marked.min.js"></script>
-
-<style>
-    body { background-color: #f8fafc; font-family: system-ui, -apple-system, sans-serif; }
-    .canvas-container { 
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); 
-        border-radius: 8px; 
-        overflow: hidden; 
-        background: white; 
-        transition: transform 0.2s; 
-    }
-    .canvas-container:hover { 
-        transform: translateY(-2px); 
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); 
-    }
-    #loading-msg {
-        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-        font-size: 1.2rem; color: #64748b; font-weight: bold;
-    }
-    /* Markdown 样式优化 */
-    .prose h3 { font-size: 1.1em; font-weight: bold; margin-top: 1em; margin-bottom: 0.5em; color: #1f2937; }
-    .prose ul { list-style-type: disc; padding-left: 1.5em; margin-bottom: 1em; }
-    .prose p { margin-bottom: 0.8em; line-height: 1.6; color: #374151; }
-    .prose strong { color: #111827; }
-    /* 隐藏滚动条 */
-    ::-webkit-scrollbar { width: 8px; height: 8px; }
-    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-</style>
-
-
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HortiLight - 专业测试报告生成器 v4.2</title>
+    
+    <!-- 样式库 -->
+    <link href="https://cdn.staticfile.org/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    
+    <!-- 核心库 -->
+    <script src="https://cdn.staticfile.org/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.staticfile.org/react/18.2.0/umd/react.development.js"></script>
+    <script src="https://cdn.staticfile.org/react-dom/18.2.0/umd/react-dom.development.js"></script>
+    <script src="https://cdn.staticfile.org/babel-standalone/7.22.20/babel.min.js"></script>
+    
+    <style>
+        body { background-color: #f8fafc; font-family: system-ui, -apple-system, sans-serif; }
+        .canvas-card { 
+            background: white; border-radius: 12px; 
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03);
+            overflow: hidden; transition: all 0.3s ease;
+            position: relative;
+        }
+        .canvas-card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.08); }
+        .input-group { @apply flex flex-col gap-2; }
+        .input-label { @apply text-sm font-bold text-slate-700; }
+        .input-field { @apply border border-slate-300 rounded-lg px-4 py-2 text-base focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition w-full; }
+    </style>
 </head>
 <body>
-<div id="root">
-<div id="loading-msg">正在初始化组件...</div>
-</div>
+    <div id="root"></div>
 
-<script type="text/babel">
-    const { useState, useEffect, useRef } = React;
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
 
-    // --- 0. 内置图标 (无需联网) ---
-    const Icon = ({ name, className, size = 20 }) => {
-        const icons = {
-            sprout: <g><path d="M7 20h10" /><path d="M10 20c5.5-2.5.8-6.4 3-10" /><path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z" /><path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z" /></g>,
-            tag: <g><path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94 .94-2.48 0-3.42L12 2Z" /><path d="M7 7h.01" /></g>,
-            "upload-cloud": <g><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" /><path d="M12 12v9" /><path d="m16 16-4-4-4 4" /></g>,
-            mail: <g><rect width="20" height="16" x="2" y="4" rx="2" /><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" /></g>,
-            "bar-chart-2": <g><line x1="18" x2="18" y1="20" y2="10" /><line x1="12" x2="12" y1="20" y2="4" /><line x1="6" x2="6" y1="20" y2="14" /></g>,
-            copy: <g><rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" /></g>,
-            download: <g><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" x2="12" y1="15" y2="3" /></g>,
-            sparkles: <g><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" /><path d="M5 3v4" /><path d="M9 5H3" /></g>,
-            settings: <g><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></g>,
-            x: <g><path d="M18 6 6 18"/><path d="m6 6 12 12"/></g>
+        // --- 辅助函数 ---
+        // 颜色插值 (纯橙色系: 从 极浅橙 到 鲜亮橙)
+        const getColor = (ratio) => {
+            // ratio 0 ~ 1
+            const rRatio = 0.1 + (ratio * 0.9);
+            const start = { r: 255, g: 250, b: 240 };
+            const end = { r: 255, g: 140, b: 0 };
+            const r = Math.round(start.r + (end.r - start.r) * rRatio);
+            const g = Math.round(start.g + (end.g - start.g) * rRatio);
+            const b = Math.round(start.b + (end.b - start.b) * rRatio);
+            return `rgb(${r}, ${g}, ${b})`;
         };
-        return (
-            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-                {icons[name] || null}
-            </svg>
-        );
-    };
 
-    // --- 1. 光谱图绘制 ---
-    function drawSpectrum(canvas, data) {
-        const ctx = canvas.getContext('2d');
-        const w = canvas.width; const h = canvas.height;
-        const padding = { top: 60, right: 40, bottom: 80, left: 60 };
-        const plotW = w - padding.left - padding.right;
-        const plotH = h - padding.top - padding.bottom;
+        const cmToFt = (cm) => (cm / 30.48).toFixed(1);
 
-        ctx.fillStyle = "white"; ctx.fillRect(0, 0, w, h);
-        if (!data || data.length === 0) return;
+        // --- 图标组件 ---
+        const Icon = ({ name, size = 18, className }) => {
+            const paths = {
+                upload: <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>,
+                download: <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>,
+                copy: <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>,
+                chart: <path d="M12 20V10M18 20V4M6 20v-6"/>,
+            };
+            return (
+                <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                    {paths[name]}
+                </svg>
+            );
+        };
 
-        const maxIntensity = Math.max(...data.map(d => d.intensity));
-        const normData = data.map(d => ({ ...d, intensity: d.intensity / maxIntensity }));
+        // --- 1. 光谱图绘制 (百分比在底部) ---
+        function drawSpectrum(canvas, data, titleStr) {
+            if (!canvas || !data || data.length === 0) return;
+            const ctx = canvas.getContext('2d');
+            const w = canvas.width; const h = canvas.height;
+            // 底部留更多空间给百分比数据
+            const padding = { top: 40, right: 30, bottom: 70, left: 50 }; 
+            const plotW = w - padding.left - padding.right;
+            const plotH = h - padding.top - padding.bottom;
 
-        // 坐标轴
-        ctx.strokeStyle = "#e5e7eb"; ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(padding.left, padding.top);
-        ctx.lineTo(padding.left, h - padding.bottom);
-        ctx.lineTo(w - padding.right, h - padding.bottom);
-        ctx.stroke();
+            ctx.fillStyle = "white"; ctx.fillRect(0, 0, w, h);
+            
+            // 标题
+            ctx.fillStyle = "#334155"; ctx.font = "16px sans-serif"; ctx.textAlign = "center";
+            ctx.fillText(titleStr || "Spectral Analysis", w/2, 25);
 
-        // 彩虹渐变
-        const gradient = ctx.createLinearGradient(padding.left, 0, w - padding.right, 0);
-        gradient.addColorStop(0, "#8b00ff"); gradient.addColorStop(0.2, "#0000ff");
-        gradient.addColorStop(0.4, "#00ff00"); gradient.addColorStop(0.6, "#ffff00");
-        gradient.addColorStop(0.8, "#ff0000"); gradient.addColorStop(1, "#8b0000");
+            // --- 计算占比 ---
+            let totalInt = 0;
+            // 为了保持顺序，使用数组
+            let ranges = [
+                { name: 'UV', label: 'UV', min: 0, max: 399, sum: 0, color: '#8b00ff', center: 390 },
+                { name: 'Blue', label: 'Blue', min: 400, max: 499, sum: 0, color: '#0000ff', center: 450 },
+                { name: 'Green', label: 'Green', min: 500, max: 599, sum: 0, color: '#008000', center: 550 },
+                { name: 'Red', label: 'Red', min: 600, max: 699, sum: 0, color: '#ff0000', center: 650 },
+                { name: 'IR', label: 'IR', min: 700, max: 1000, sum: 0, color: '#8b0000', center: 740 }
+            ];
 
-        ctx.beginPath(); ctx.moveTo(padding.left, h - padding.bottom);
-        const minWl = 380; const maxWl = 780;
-        normData.forEach(d => {
-            if (d.wl < minWl || d.wl > maxWl) return;
-            const x = padding.left + ((d.wl - minWl) / (maxWl - minWl)) * plotW;
-            const y = (h - padding.bottom) - (d.intensity * plotH);
-            ctx.lineTo(x, y);
-        });
-        ctx.lineTo(w - padding.right, h - padding.bottom);
-        ctx.closePath(); ctx.fillStyle = gradient; ctx.fill();
+            const maxInt = Math.max(...data.map(d => {
+                totalInt += d.intensity;
+                const wl = d.wl;
+                const range = ranges.find(r => wl >= r.min && wl <= r.max);
+                if (range) range.sum += d.intensity;
+                return d.intensity;
+            }));
+            const normData = data.map(d => ({ ...d, val: d.intensity / maxInt }));
 
-        // 黑色轮廓
-        ctx.beginPath(); let first = true;
-        normData.forEach(d => {
-            if (d.wl < minWl || d.wl > maxWl) return;
-            const x = padding.left + ((d.wl - minWl) / (maxWl - minWl)) * plotW;
-            const y = (h - padding.bottom) - (d.intensity * plotH);
-            if(first) { ctx.moveTo(x, y); first=false; } else ctx.lineTo(x, y);
-        });
-        ctx.strokeStyle = "#1f2937"; ctx.lineWidth = 1.5; ctx.stroke();
+            // --- 绘制图表 ---
+            // 渐变填充
+            const grad = ctx.createLinearGradient(padding.left, 0, padding.left + plotW, 0);
+            grad.addColorStop(0, "#8b00ff"); grad.addColorStop(0.25, "#0000ff");
+            grad.addColorStop(0.45, "#00ff00"); grad.addColorStop(0.6, "#ffff00");
+            grad.addColorStop(0.8, "#ff0000"); grad.addColorStop(1, "#8b0000");
 
-        // 标题
-        ctx.fillStyle = "#111827"; ctx.font = "bold 24px sans-serif";
-        ctx.textAlign = "center"; ctx.fillText("Full Spectrum Analysis", w / 2, 40);
+            ctx.beginPath(); ctx.moveTo(padding.left, h - padding.bottom);
+            normData.forEach(d => {
+                if(d.wl < 380 || d.wl > 780) return;
+                const x = padding.left + ((d.wl - 380) / 400) * plotW;
+                const y = (h - padding.bottom) - (d.val * plotH);
+                ctx.lineTo(x, y);
+            });
+            ctx.lineTo(w - padding.right, h - padding.bottom);
+            ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
 
-        // 底部数据
-        let ranges = { "Blue (400-499nm)": {s:400, e:499, c:"#2563eb"}, "Green (500-599nm)": {s:500, e:599, c:"#16a34a"}, "Red (600-699nm)": {s:600, e:699, c:"#dc2626"}, "Far Red (700-780nm)": {s:700, e:780, c:"#991b1b"} };
-        let totalArea = 0; let rangeAreas = { "Blue":0, "Green":0, "Red":0, "Far Red":0 };
-        
-        for(let i=0; i<normData.length-1; i++) {
-            const d1=normData[i], d2=normData[i+1];
-            const area = (d1.intensity+d2.intensity)/2 * (d2.wl-d1.wl);
-            totalArea += area;
-            if(d1.wl>=400 && d1.wl<=499) rangeAreas["Blue"]+=area;
-            else if(d1.wl>=500 && d1.wl<=599) rangeAreas["Green"]+=area;
-            else if(d1.wl>=600 && d1.wl<=699) rangeAreas["Red"]+=area;
-            else if(d1.wl>=700 && d1.wl<=780) rangeAreas["Far Red"]+=area;
+            // 边框
+            ctx.strokeStyle = "#cbd5e1"; ctx.lineWidth = 1;
+            ctx.strokeRect(padding.left, padding.top, plotW, plotH);
+            
+            // X轴刻度 (波长)
+            ctx.fillStyle = "#94a3b8"; ctx.font = "10px sans-serif"; ctx.textAlign = "center";
+            [380, 480, 580, 680, 780].forEach(wl => {
+                const x = padding.left + ((wl - 380) / 400) * plotW;
+                ctx.fillText(wl, x, h - padding.bottom + 15);
+                // 小刻度线
+                ctx.beginPath(); ctx.moveTo(x, h - padding.bottom); ctx.lineTo(x, h - padding.bottom + 4); ctx.stroke();
+            });
+
+            // --- 底部百分比数据 ---
+            const dataY = h - 20;
+            ranges.forEach(r => {
+                if (r.center < 380 || r.center > 780 && r.name !== 'IR' && r.name !== 'UV') return; // 简单边界检查
+                
+                // 计算 x 位置
+                let x = padding.left + ((r.center - 380) / 400) * plotW;
+                // 边界修正
+                if(x < padding.left) x = padding.left + 10;
+                if(x > w - padding.right) x = w - padding.right - 10;
+
+                const pct = ((r.sum / totalInt) * 100).toFixed(1) + "%";
+                
+                // 绘制名称
+                ctx.fillStyle = r.color;
+                ctx.font = "bold 11px sans-serif";
+                ctx.textAlign = "center";
+                ctx.fillText(r.label, x, dataY - 12);
+                
+                // 绘制数值
+                ctx.fillStyle = "#334155";
+                ctx.font = "11px sans-serif";
+                ctx.fillText(pct, x, dataY);
+            });
         }
 
-        let xPos = padding.left + plotW/8;
-        const yText = h - 25;
-        ctx.font = "bold 14px sans-serif";
-        Object.keys(rangeAreas).forEach((key, i) => {
-            const color = Object.values(ranges)[i].c;
-            const pct = ((rangeAreas[key] / totalArea) * 100).toFixed(1);
-            ctx.fillStyle = color; ctx.textAlign = "center";
-            ctx.fillText(key, xPos, yText - 20);
-            ctx.fillStyle = "#374151"; ctx.fillText(pct + "%", xPos, yText);
-            xPos += plotW / 4;
-        });
-    }
+        // --- 2. PPFD 热力图 (优雅简洁版) ---
+        function drawHeatmap(canvas, grid, title) {
+            if (!canvas || !grid || grid.length === 0) return;
+            const ctx = canvas.getContext('2d');
+            
+            const rows = grid.length;
+            const cols = grid[0].length;
+            const cellSize = 70;
+            const padding = { top: 50, right: 40, bottom: 40, left: 50 };
+            
+            const targetW = padding.left + padding.right + ((cols - 1) * cellSize);
+            const targetH = padding.top + padding.bottom + ((rows - 1) * cellSize);
+            canvas.width = targetW;
+            canvas.height = targetH;
+            
+            ctx.fillStyle = "white"; ctx.fillRect(0, 0, targetW, targetH);
 
-    // --- 2. PPFD 热力图 (十字交点) ---
-    function drawHeatmap(canvas, gridData) {
-        const ctx = canvas.getContext('2d');
-        const w = canvas.width; const h = canvas.height;
-        
-        ctx.fillStyle = "white"; ctx.fillRect(0, 0, w, h);
-        ctx.fillStyle = "#111827"; ctx.font = "bold 24px sans-serif";
-        ctx.textAlign = "center"; ctx.fillText("PPFD Distribution Test", w / 2, 40);
-
-        const drawSingleGrid = (grid, title, x, y, width, height) => {
-            const rows = 3; const cols = 3;
-            const paddingLeft = 40; const paddingTop = 40;
-            const plotW = width - paddingLeft; const plotH = height - paddingTop;
-            const cellW = plotW / cols; const cellH = plotH / rows;
+            // 标题优化: 14px, 正常粗细, 颜色淡一点
+            ctx.fillStyle = "#475569"; ctx.font = "14px sans-serif"; ctx.textAlign = "center";
+            ctx.fillText(title, targetW/2, 25);
 
             const flat = grid.flat();
-            const minVal = Math.min(...flat); const maxVal = Math.max(...flat);
+            const minVal = Math.min(...flat);
+            const maxVal = Math.max(...flat);
+            const valRange = maxVal - minVal || 1;
 
-            ctx.save(); ctx.translate(x, y);
+            const startX = padding.left;
+            const startY = padding.top;
 
-            ctx.fillStyle = "#374151"; ctx.font = "bold 18px sans-serif";
-            ctx.textAlign = "center"; ctx.fillText(title, width/2, 10);
+            // --- A. 绘制平滑渐变背景 ---
+            const subDiv = 10; 
+            for (let r = 0; r < rows - 1; r++) {
+                for (let c = 0; c < cols - 1; c++) {
+                    const vTL = grid[r][c];
+                    const vTR = grid[r][c+1];
+                    const vBL = grid[r+1][c];
+                    const vBR = grid[r+1][c+1];
 
-            // Background Colors
-            for (let r = 0; r < rows; r++) {
-                for (let c = 0; c < cols; c++) {
-                    const val = grid[r][c];
-                    const ratio = (val - minVal*0.5) / (maxVal - minVal*0.5);
-                    const rCol = 255; const gCol = Math.floor(255 * (1 - ratio * 0.6)); const bCol = Math.floor(200 * (1 - ratio));
-                    ctx.fillStyle = `rgb(${rCol}, ${gCol}, ${bCol})`;
-                    ctx.fillRect(paddingLeft + c * cellW, paddingTop + r * cellH, cellW, cellH);
-                }
-            }
-
-            // Crosshairs
-            ctx.strokeStyle = "#9ca3af"; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
-            for (let c = 0; c < cols; c++) {
-                const cx = paddingLeft + c * cellW + cellW/2;
-                ctx.beginPath(); ctx.moveTo(cx, paddingTop); ctx.lineTo(cx, paddingTop + plotH); ctx.stroke();
-                ctx.fillStyle = "#4b5563"; ctx.font = "bold 14px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
-                ctx.fillText((c+1).toString(), cx, paddingTop - 5);
-            }
-            for (let r = 0; r < rows; r++) {
-                const cy = paddingTop + r * cellH + cellH/2;
-                ctx.beginPath(); ctx.moveTo(paddingLeft, cy); ctx.lineTo(paddingLeft + plotW, cy); ctx.stroke();
-                const label = String.fromCharCode(65 + r);
-                ctx.fillStyle = "#4b5563"; ctx.font = "bold 14px sans-serif"; ctx.textAlign = "right"; ctx.textBaseline = "middle";
-                ctx.fillText(label, paddingLeft - 8, cy);
-            }
-            ctx.setLineDash([]);
-
-            // Border
-            ctx.strokeStyle = "#d1d5db"; ctx.lineWidth = 2; ctx.strokeRect(paddingLeft, paddingTop, plotW, plotH);
-
-            // Values
-            for (let r = 0; r < rows; r++) {
-                for (let c = 0; c < cols; c++) {
-                    const val = grid[r][c];
-                    const cx = paddingLeft + c * cellW + cellW/2;
-                    const cy = paddingTop + r * cellH + cellH/2;
-                    const ratio = (val - minVal*0.5) / (maxVal - minVal*0.5);
-                    ctx.fillStyle = ratio > 0.7 ? "white" : "black";
-                    ctx.font = "bold 16px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-                    ctx.strokeStyle = ratio > 0.7 ? "rgba(0,0,0,0.3)" : "rgba(255,255,255,0.5)";
-                    ctx.lineWidth = 3; ctx.strokeText(val.toFixed(1), cx, cy);
-                    ctx.fillText(val.toFixed(1), cx, cy);
-                }
-            }
-            ctx.restore();
-        };
-        drawSingleGrid(gridData.h1, "Height 1 (1.5 ft)", 40, 70, (w/2)-60, h-100);
-        drawSingleGrid(gridData.h2, "Height 2 (2.0 ft)", (w/2)+20, 70, (w/2)-60, h-100);
-    }
-
-    // --- 3. 锥形图绘制 ---
-    function drawCone(canvas, centerVals) {
-        const ctx = canvas.getContext('2d');
-        const w = canvas.width; const h = canvas.height;
-        ctx.fillStyle = "white"; ctx.fillRect(0, 0, w, h);
-
-        const centerX = w / 2; const topY = 100; const bottomY = h - 50;
-        const plotH = bottomY - topY; const maxH = 4.0;
-
-        ctx.fillStyle = "#374151"; ctx.beginPath();
-        ctx.arc(centerX, topY - 20, 10, 0, Math.PI * 2); ctx.fill();
-        ctx.fillRect(centerX - 6, topY - 30, 12, 10);
-
-        ctx.fillStyle = "#111827"; ctx.font = "bold 24px sans-serif";
-        ctx.textAlign = "center"; ctx.fillText("Illumination Distribution", w / 2, 40);
-
-        ctx.save(); ctx.setLineDash([5, 5]); ctx.strokeStyle = "#9ca3af"; ctx.beginPath();
-        ctx.moveTo(centerX, topY); ctx.lineTo(centerX - 150, bottomY);
-        ctx.moveTo(centerX, topY); ctx.lineTo(centerX + 150, bottomY);
-        ctx.stroke(); ctx.restore();
-
-        const heights = [1.0, 2.0, 3.0, 4.0];
-        const maxVal = Math.max(...centerVals);
-
-        heights.forEach((ft, i) => {
-            const val = centerVals[i];
-            const y = topY + (ft / maxH) * plotH;
-            const radiusX = (ft / maxH) * 150; const radiusY = radiusX * 0.3;
-            const ratio = (val) / (maxVal || 1);
-            const alpha = 0.3 + (ratio * 0.5);
-            
-            ctx.beginPath(); ctx.ellipse(centerX, y, radiusX, radiusY, 0, 0, 2 * Math.PI);
-            ctx.fillStyle = `rgba(249, 115, 22, ${alpha})`; ctx.fill();
-            ctx.strokeStyle = "#f97316"; ctx.lineWidth = 2; ctx.stroke();
-
-            ctx.fillStyle = "#374151"; ctx.font = "bold 16px sans-serif";
-            ctx.textAlign = "right"; ctx.fillText(ft + " FT", centerX - 210, y + 5);
-            ctx.strokeStyle = "#d1d5db"; ctx.setLineDash([2, 2]); ctx.beginPath();
-            ctx.moveTo(centerX - radiusX, y); ctx.lineTo(centerX - 200, y); ctx.stroke();
-
-            ctx.textAlign = "left"; ctx.fillText(val.toFixed(1) + " μmol/s/m²", centerX + 210, y + 5);
-            ctx.beginPath(); ctx.moveTo(centerX + radiusX, y); ctx.lineTo(centerX + 200, y); ctx.stroke();
-        });
-    }
-
-    // --- 主程序 ---
-    function App() {
-        const [file, setFile] = useState(null);
-        const [status, setStatus] = useState("等待上传 Excel 文件...");
-        const [parsedData, setParsedData] = useState(null);
-        const [productCode, setProductCode] = useState("");
-        
-        // AI 相关状态
-        const [apiKey, setApiKey] = useState(localStorage.getItem('gemini_api_key') || "");
-        const [showSettings, setShowSettings] = useState(false);
-        const [aiStatus, setAiStatus] = useState("idle"); // idle, loading, success, error
-        const [aiResult, setAiResult] = useState("");
-
-        const specRef = useRef(null);
-        const ppfdRef = useRef(null);
-        const coneRef = useRef(null);
-
-        // 保存 API Key
-        const saveApiKey = (val) => {
-            setApiKey(val);
-            localStorage.setItem('gemini_api_key', val);
-        };
-
-        const handleFile = async (f) => {
-            if(!f) return;
-            setFile(f);
-            if(!productCode) {
-                const possibleCode = f.name.split('_')[0].split('.')[0];
-                if(possibleCode.length > 3) setProductCode(possibleCode);
-            }
-            setStatus("正在解析数据...");
-            setAiResult(""); // 重置 AI 结果
-            setAiStatus("idle");
-
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                try {
-                    const data = new Uint8Array(e.target.result);
-                    const workbook = XLSX.read(data, { type: 'array' });
-                    
-                    const specSheet = workbook.Sheets['光谱'] || workbook.Sheets[Object.keys(workbook.Sheets)[0]];
-                    const specJson = XLSX.utils.sheet_to_json(specSheet);
-                    let wlKey = Object.keys(specJson[0]).find(k => k.includes("波长"));
-                    let intKey = Object.keys(specJson[0]).find(k => k.includes("光谱") && k.includes("相对"));
-                    const spectrumData = specJson.map(row => ({ wl: parseFloat(row[wlKey]), intensity: parseFloat(row[intKey]) })).filter(d => !isNaN(d.wl));
-
-                    const ppfdSheetName = workbook.SheetNames.find(n => n.includes("PPFD")) || workbook.SheetNames[1];
-                    const ppfdRaw = XLSX.utils.sheet_to_json(workbook.Sheets[ppfdSheetName], {header: 1});
-                    let startRow = ppfdRaw.findIndex(row => JSON.stringify(row).includes("A1"));
-                    if(startRow === -1) startRow = 34;
-
-                    const points = [];
-                    for(let i=startRow; i<ppfdRaw.length; i++) {
-                        const row = ppfdRaw[i];
-                        if(row[2] && typeof row[2] === 'string' && row[2].match(/^[A-Z]\d+$/)) {
-                            points.push({ coord: row[2], h1: parseFloat(row[3]), h2: parseFloat(row[4]), h3: parseFloat(row[5]), h4: parseFloat(row[6]) });
+                    for (let sy = 0; sy < subDiv; sy++) {
+                        for (let sx = 0; sx < subDiv; sx++) {
+                            const py = sy / subDiv;
+                            const px = sx / subDiv;
+                            const val = (1-px)*(1-py)*vTL + px*(1-py)*vTR + (1-px)*py*vBL + px*py*vBR;
+                            
+                            const ratio = (val - minVal) / valRange;
+                            ctx.fillStyle = getColor(ratio);
+                            
+                            const cellX = startX + c * cellSize;
+                            const cellY = startY + r * cellSize;
+                            ctx.fillRect(
+                                cellX + (sx * cellSize / subDiv), 
+                                cellY + (sy * cellSize / subDiv), 
+                                (cellSize / subDiv) + 0.5, 
+                                (cellSize / subDiv) + 0.5
+                            );
                         }
                     }
+                }
+            }
 
-                    const gridH1 = [[0,0,0],[0,0,0],[0,0,0]];
-                    const gridH2 = [[0,0,0],[0,0,0],[0,0,0]];
-                    points.forEach(p => {
-                        const r = p.coord.charCodeAt(0) - 65; 
-                        const c = parseInt(p.coord.slice(1)) - 1;
-                        if(r<3 && c<3) { gridH1[r][c] = p.h1||0; gridH2[r][c] = p.h2||0; }
-                    });
-                    const b2 = points.find(p => p.coord === "B2") || {h1:0, h2:0, h3:0, h4:0};
+            // --- B. 绘制网格线 (变细, 优雅) ---
+            ctx.strokeStyle = "rgba(255,255,255,0.5)"; 
+            ctx.lineWidth = 0.5; // 极细网格线
+            
+            // 垂直线
+            for (let c = 0; c < cols; c++) {
+                const x = startX + c * cellSize;
+                ctx.beginPath(); ctx.moveTo(x, startY); ctx.lineTo(x, startY + (rows-1)*cellSize); ctx.stroke();
+            }
+            // 水平线
+            for (let r = 0; r < rows; r++) {
+                const y = startY + r * cellSize;
+                ctx.beginPath(); ctx.moveTo(startX, y); ctx.lineTo(startX + (cols-1)*cellSize, y); ctx.stroke();
+            }
+
+            // 外框 (变细)
+            ctx.strokeStyle = "#94a3b8"; ctx.lineWidth = 1; 
+            ctx.strokeRect(startX, startY, (cols-1)*cellSize, (rows-1)*cellSize);
+
+            // --- C. 绘制交叉点数值 (缩小, 不加粗) ---
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    const val = grid[r][c];
+                    const x = startX + c * cellSize;
+                    const y = startY + r * cellSize;
                     
-                    setParsedData({ spectrumData, gridData: {h1: gridH1, h2: gridH2}, centerVals: [b2.h1, b2.h2, b2.h3, b2.h4] });
-                    setStatus("解析完成 ✅");
-                } catch (err) { setStatus("解析失败: " + err.message); }
+                    // 样式优化: 9px, 非粗体
+                    ctx.font = "9px Arial";
+                    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+                    
+                    // 减弱光晕: 更细, 透明度更高
+                    ctx.strokeStyle = "rgba(255,255,255,0.7)";
+                    ctx.lineWidth = 2; 
+                    ctx.strokeText(val.toFixed(2), x, y);
+                    
+                    ctx.fillStyle = "#334155"; // 稍微深灰一点，不完全黑，更有质感
+                    ctx.fillText(val.toFixed(2), x, y);
+                }
+            }
+        }
+
+        // --- 3. 锥形图 (4个高度推算) ---
+        function drawCone(canvas, data, titleStr) {
+            if (!canvas || !data || data.heights.length < 2) return;
+            const ctx = canvas.getContext('2d');
+            const w = canvas.width; const h = canvas.height;
+            
+            ctx.fillStyle = "white"; ctx.fillRect(0, 0, w, h);
+            
+            ctx.fillStyle = "#334155"; ctx.font = "bold 16px sans-serif"; ctx.textAlign = "center";
+            ctx.fillText(titleStr || "Cone Diagram", w/2, 25);
+
+            // 1. 数据准备
+            const h1 = data.heights[0];
+            const h2 = data.heights[1];
+            const step = h2 - h1;
+            
+            const fullHeights = [h1, h2, h2 + step, h2 + step * 2];
+            const v2 = data.vals[1];
+            const k = v2 * (h2 * h2); 
+            
+            const fullVals = [
+                data.vals[0],
+                data.vals[1],
+                k / Math.pow(fullHeights[2], 2),
+                k / Math.pow(fullHeights[3], 2)
+            ];
+
+            const centerX = w / 2;
+            const topY = 60;
+            const bottomY = h - 40;
+            const availH = bottomY - topY;
+
+            const maxH = fullHeights[3];
+            const scaleY = availH / (maxH * 1.15); 
+
+            // 2. 轴线
+            ctx.strokeStyle = "#cbd5e1"; ctx.lineWidth = 1; ctx.setLineDash([5, 5]);
+            ctx.beginPath(); ctx.moveTo(centerX, topY); ctx.lineTo(centerX, bottomY); ctx.stroke();
+            ctx.setLineDash([]);
+
+            // 3. 灯源
+            ctx.fillStyle = "#fbbf24"; 
+            ctx.beginPath(); ctx.arc(centerX, topY, 6, 0, Math.PI*2); ctx.fill();
+
+            // 4. 绘制光斑 (4层)
+            const maxVal = Math.max(...fullVals);
+            
+            fullHeights.forEach((height, i) => {
+                const val = fullVals[i];
+                const y = topY + (height * scaleY);
+                const radius = height * scaleY * 0.55; 
+                
+                // 颜色 (使用新的橙色逻辑)
+                const opacity = 0.2 + (val / maxVal) * 0.6;
+                const ratio = val / maxVal;
+                
+                ctx.beginPath();
+                ctx.ellipse(centerX, y, radius, radius * 0.25, 0, 0, Math.PI * 2);
+                ctx.fillStyle = getColor(ratio).replace(')', `, ${opacity})`).replace('rgb', 'rgba');
+                ctx.fill();
+                ctx.strokeStyle = "rgba(234, 88, 12, 0.5)";
+                ctx.lineWidth = 1; ctx.stroke();
+
+                // 标注线
+                ctx.strokeStyle = "#94a3b8"; ctx.lineWidth = 1;
+                
+                // 左侧: 高度
+                const labelH = `${cmToFt(height)}ft / ${Math.round(height)}cm`;
+                ctx.beginPath(); ctx.moveTo(centerX - radius, y); ctx.lineTo(centerX - radius - 30, y); ctx.stroke();
+                ctx.fillStyle = "#475569"; ctx.font = "11px sans-serif"; ctx.textAlign = "right"; ctx.textBaseline = "middle";
+                ctx.fillText(labelH, centerX - radius - 35, y);
+
+                // 右侧: 数值
+                const labelV = `${val.toFixed(2)} µmol/s/m²`;
+                ctx.beginPath(); ctx.moveTo(centerX + radius, y); ctx.lineTo(centerX + radius + 30, y); ctx.stroke();
+                ctx.textAlign = "left";
+                ctx.font = "bold 11px sans-serif";
+                ctx.fillText(labelV, centerX + radius + 35, y);
+            });
+        }
+
+        // --- 主程序 ---
+        function App() {
+            const [file, setFile] = useState(null);
+            const [modelName, setModelName] = useState("Model-X"); 
+            const [status, setStatus] = useState("");
+            const [chartData, setChartData] = useState(null);
+
+            const specRef = useRef(null);
+            const ppfdH1Ref = useRef(null);
+            const ppfdH2Ref = useRef(null);
+            const coneRef = useRef(null);
+
+            const handleFile = (f) => {
+                if(!f) return;
+                setFile(f);
+                setStatus("正在解析...");
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const wb = XLSX.read(data, {type:'array'});
+                        
+                        // 1. 读取 Sheet1
+                        const sheet1 = XLSX.utils.sheet_to_json(wb.Sheets['Sheet1'] || wb.Sheets[wb.SheetNames[0]]);
+                        const metaRow = sheet1[0] || {}; 
+                        const h1_cm = parseFloat(metaRow['H1_cm'] || 30);
+                        const h2_cm = parseFloat(metaRow['H2_cm'] || 60);
+
+                        // 2. 光谱
+                        let specData = [];
+                        if (wb.Sheets['光谱']) {
+                            specData = XLSX.utils.sheet_to_json(wb.Sheets['光谱']).map(row => ({
+                                wl: row['波长(nm)'], intensity: row['相对光谱']
+                            })).filter(d => d.wl);
+                        }
+
+                        // 3. PPFD Grid
+                        const ppfdSheetName = wb.SheetNames.find(n => n.includes("PPFD"));
+                        if (!ppfdSheetName) throw new Error("缺少 PPFD 工作表");
+                        const ppfdRaw = XLSX.utils.sheet_to_json(wb.Sheets[ppfdSheetName], {header:1});
+                        
+                        let startRow = -1;
+                        for(let i=0; i<ppfdRaw.length; i++) {
+                            if(JSON.stringify(ppfdRaw[i]).includes("A1")) { startRow = i; break; }
+                        }
+                        if(startRow === -1) throw new Error("未找到 A1 测试数据");
+
+                        const points = [];
+                        let maxR = 0, maxC = 0;
+                        for(let i=startRow; i<ppfdRaw.length; i++) {
+                            const row = ppfdRaw[i];
+                            if(typeof row[2] === 'string' && row[2].match(/^[A-Z]\d+$/)) {
+                                const r = row[2].charCodeAt(0) - 65;
+                                const c = parseInt(row[2].slice(1)) - 1;
+                                if(r>maxR) maxR=r; if(c>maxC) maxC=c;
+                                points.push({ r, c, h1: parseFloat(row[3]), h2: parseFloat(row[4]) });
+                            }
+                        }
+
+                        const rows = maxR + 1;
+                        const cols = maxC + 1;
+                        const gridH1 = Array(rows).fill().map(() => Array(cols).fill(0));
+                        const gridH2 = Array(rows).fill().map(() => Array(cols).fill(0));
+                        points.forEach(p => {
+                            if(p.r < rows && p.c < cols) {
+                                gridH1[p.r][p.c] = p.h1 || 0;
+                                gridH2[p.r][p.c] = p.h2 || 0;
+                            }
+                        });
+
+                        const cR = Math.floor(rows/2);
+                        const cC = Math.floor(cols/2);
+                        const val1 = gridH1[cR][cC];
+                        const val2 = gridH2[cR][cC];
+
+                        setChartData({
+                            spec: specData,
+                            h1: { grid: gridH1, height: h1_cm },
+                            h2: { grid: gridH2, height: h2_cm },
+                            cone: { heights: [h1_cm, h2_cm], vals: [val1, val2] }
+                        });
+                        setStatus("解析成功");
+                    } catch(e) {
+                        console.error(e);
+                        setStatus("错误: " + e.message);
+                    }
+                };
+                reader.readAsArrayBuffer(f);
             };
-            reader.readAsArrayBuffer(f);
-        };
 
-        useEffect(() => {
-            if(parsedData) {
-                drawSpectrum(specRef.current, parsedData.spectrumData);
-                drawHeatmap(ppfdRef.current, parsedData.gridData);
-                drawCone(coneRef.current, parsedData.centerVals);
-            }
-        }, [parsedData]);
+            useEffect(() => {
+                if(chartData) {
+                    drawSpectrum(specRef.current, chartData.spec, `${modelName} - Spectrum`);
+                    drawHeatmap(ppfdH1Ref.current, chartData.h1.grid, `${modelName} - PPFD @ ${chartData.h1.height}cm`);
+                    drawHeatmap(ppfdH2Ref.current, chartData.h2.grid, `${modelName} - PPFD @ ${chartData.h2.height}cm`);
+                    drawCone(coneRef.current, chartData.cone, `${modelName} - Light Cone`);
+                }
+            }, [chartData, modelName]);
 
-        // AI 分析逻辑
-        const runAIAnalysis = async () => {
-            if(!apiKey) {
-                alert("请先点击右上角设置图标，配置您的 Google Gemini API Key。");
-                setShowSettings(true);
-                return;
-            }
-            if(!parsedData) return;
+            const download = (ref, suffix) => {
+                if (!ref.current) return;
+                const link = document.createElement('a');
+                link.download = `${modelName}_${suffix}.png`;
+                link.href = ref.current.toDataURL();
+                link.click();
+            };
 
-            setAiStatus("loading");
-            
-            const { centerVals, gridData } = parsedData;
-            const avgH1 = (gridData.h1.flat().reduce((a,b)=>a+b,0) / 9).toFixed(1);
-            const avgH2 = (gridData.h2.flat().reduce((a,b)=>a+b,0) / 9).toFixed(1);
-            
-            const promptText = `
+            return (
+                <div className="max-w-7xl mx-auto p-6">
+                    {/* Header: 型号输入移到最上方显眼位置 */}
+                    <header className="mb-8 bg-white p-6 rounded-xl shadow-sm">
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                            
+                            {/* 左侧：标题与状态 */}
+                            <div>
+                                <h1 className="text-2xl font-bold text-slate-800">HortiLight 报告生成器 v4.2</h1>
+                                <p className="text-sm text-slate-500 mt-1">智能插值热力图 / 光谱占比分析 / 锥形图自动推算</p>
+                                {status && <p className="text-sm text-blue-600 mt-2 font-medium">{status}</p>}
+                            </div>
 
+                            {/* 右侧：操作区 */}
+                            <div className="flex flex-col sm:flex-row gap-4 w-full md:w-auto items-stretch sm:items-end">
+                                {/* 型号输入 - 显眼样式 */}
+                                <div className="input-group flex-grow">
+                                    <label className="input-label text-blue-800">产品型号 (Model Name)</label>
+                                    <input 
+                                        type="text" 
+                                        value={modelName} 
+                                        onChange={e => setModelName(e.target.value)} 
+                                        className="input-field border-2 border-blue-100 bg-blue-50 text-lg font-bold text-blue-900 placeholder-blue-300"
+                                        placeholder="请输入型号 e.g. GL-600W"
+                                    />
+                                </div>
+                                
+                                {/* 上传按钮 */}
+                                <div className="relative">
+                                    <input type="file" onChange={e => handleFile(e.target.files[0])} className="hidden" id="upload" />
+                                    <label htmlFor="upload" className="cursor-pointer bg-blue-600 text-white h-[46px] px-6 rounded-lg font-medium hover:bg-blue-700 transition flex items-center justify-center gap-2 shadow-md hover:shadow-lg whitespace-nowrap">
+                                        <Icon name="upload" className="w-5 h-5"/> 上传 Excel
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </header>
 
-请作为植物照明专家（Horticultural Lighting Expert），分析以下 LED 植物灯测试数据。请用中文回答，语气专业且有建设性。
+                    {chartData && (
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            {/* 1. 光谱 */}
+                            <div className="canvas-card p-4">
+                                <div className="flex justify-between items-center mb-2 px-2">
+                                    <h3 className="text-sm font-bold text-slate-700 uppercase">Spectrum Analysis</h3>
+                                    <button onClick={() => download(specRef, 'Spectrum')} className="text-slate-400 hover:text-blue-600 p-1"><Icon name="download"/></button>
+                                </div>
+                                <canvas ref={specRef} width={600} height={400} className="w-full h-auto"/>
+                            </div>
 
-产品信息
+                            {/* 2. 锥形图 */}
+                            <div className="canvas-card p-4">
+                                <div className="flex justify-between items-center mb-2 px-2">
+                                    <h3 className="text-sm font-bold text-slate-700 uppercase">Light Cone</h3>
+                                    <button onClick={() => download(coneRef, 'Cone')} className="text-slate-400 hover:text-blue-600 p-1"><Icon name="download"/></button>
+                                </div>
+                                <canvas ref={coneRef} width={600} height={500} className="w-full h-auto"/>
+                            </div>
 
-编码: ${productCode || "未提供"}
+                            {/* 3. PPFD H1 */}
+                            <div className="canvas-card p-4">
+                                <div className="flex justify-between items-center mb-2 px-2">
+                                    <h3 className="text-sm font-bold text-slate-700 uppercase">PPFD Map (H1)</h3>
+                                    <button onClick={() => download(ppfdH1Ref, `PPFD_${chartData.h1.height}cm`)} className="text-slate-400 hover:text-blue-600 p-1"><Icon name="download"/></button>
+                                </div>
+                                <canvas ref={ppfdH1Ref} className="w-full h-auto border border-slate-100 rounded"/>
+                            </div>
 
-测试数据摘要
+                            {/* 4. PPFD H2 */}
+                            <div className="canvas-card p-4">
+                                <div className="flex justify-between items-center mb-2 px-2">
+                                    <h3 className="text-sm font-bold text-slate-700 uppercase">PPFD Map (H2)</h3>
+                                    <button onClick={() => download(ppfdH2Ref, `PPFD_${chartData.h2.height}cm`)} className="text-slate-400 hover:text-blue-600 p-1"><Icon name="download"/></button>
+                                </div>
+                                <canvas ref={ppfdH2Ref} className="w-full h-auto border border-slate-100 rounded"/>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
 
-PPFD (光合光子通量密度):
-
-高度1 (1.5ft) 平均值: ${avgH1} μmol/m²/s
-
-高度2 (2.0ft) 平均值: ${avgH2} μmol/m²/s
-
-中心点强度随高度变化 (1ft -> 4ft): ${centerVals.join(" -> ")} μmol/m²/s
-
-均匀性数据 (3x3 网格样本):
-
-高度1 网格数据: ${JSON.stringify(gridData.h1)}
-
-请生成一份简短的评估报告 (Markdown格式)，包含：
-
-光强评价：该光强适合哪些生长阶段（如育苗、营养生长、开花）？
-
-均匀性分析：基于网格数据，光照是否均匀？有没有明显的热点？
-
-应用建议：建议的悬挂高度和种植场景（如帐篷、大棚、层架）。
-`;
-
-         try {
-             const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
-                 method: "POST",
-                 headers: { "Content-Type": "application/json" },
-                 body: JSON.stringify({
-                     contents: [{ parts: [{ text: promptText }] }]
-                 })
-             });
-
-             const data = await response.json();
-             if(data.error) throw new Error(data.error.message);
-
-             const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "未获取到结果";
-             setAiResult(aiText);
-             setAiStatus("success");
-         } catch (err) {
-             console.error(err);
-             setAiResult("AI 分析失败: " + err.message);
-             setAiStatus("error");
-         }
-     };
-
-     const download = (ref, suffix) => {
-         if(!ref.current) return;
-         const prefix = productCode ? productCode.trim() : "Report";
-         const link = document.createElement('a');
-         link.download = `${prefix}_${suffix}.png`;
-         link.href = ref.current.toDataURL();
-         link.click();
-     };
-
-     const copyToClipboard = (ref) => {
-         if(!ref.current) return;
-         ref.current.toBlob(blob => {
-             try {
-                 const item = new ClipboardItem({ "image/png": blob });
-                 navigator.clipboard.write([item]);
-                 alert("图片已复制！");
-             } catch (err) { alert("复制失败，请使用Chrome或Edge浏览器。"); }
-         });
-     };
-
-     const sendEmail = () => {
-         const subject = encodeURIComponent(`Test Report: ${productCode || 'New Product'}`);
-         const body = encodeURIComponent(`Hi Team,\n\nPlease find the test reports attached.\n\n(Paste images here)\n\nBest regards,`);
-         window.location.href = `mailto:?subject=${subject}&body=${body}`;
-     };
-
-     return (
-         <div className="max-w-6xl mx-auto p-6 relative">
-             {/* 设置面板 Modal */}
-             {showSettings && (
-                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                     <div className="bg-white p-6 rounded-xl shadow-xl w-96">
-                         <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><Icon name="settings" size={20}/>设置 API Key</h3>
-                         <p className="text-sm text-gray-500 mb-2">请输入您的 Google Gemini API Key 以启用 AI 分析功能。</p>
-                         <input 
-                             type="password" 
-                             className="w-full border p-2 rounded mb-4 focus:ring-2 ring-indigo-500 outline-none" 
-                             placeholder="AIzaSy..." 
-                             value={apiKey} 
-                             onChange={e => saveApiKey(e.target.value)}
-                         />
-                         <div className="flex justify-end">
-                             <button onClick={() => setShowSettings(false)} className="bg-gray-800 text-white px-4 py-2 rounded hover:bg-gray-700">保存并关闭</button>
-                         </div>
-                     </div>
-                 </div>
-             )}
-
-             <div className="bg-white rounded-xl shadow-sm p-6 mb-8 border border-gray-100 relative">
-                 <button onClick={() => setShowSettings(true)} className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition" title="设置"><Icon name="settings" /></button>
-
-                 <div className="flex flex-col md:flex-row justify-between items-center gap-6">
-                     <div className="flex-1 w-full">
-                         <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-                             <Icon name="sprout" className="text-green-600" />
-                             HortiLight 报告生成器
-                         </h1>
-                         <p className="text-gray-500 text-sm mt-1">本地安全运行 · 数据不上传云端</p>
-                     </div>
-                     <div className="flex-1 w-full">
-                         <label className="block text-sm font-medium text-gray-700 mb-1">产品编码</label>
-                         <div className="relative">
-                             <input type="text" value={productCode} onChange={e => setProductCode(e.target.value)} placeholder="例如: PL-T100" className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"/>
-                             <span className="absolute left-3 top-2.5 text-gray-400"><Icon name="tag" size={20} /></span>
-                         </div>
-                     </div>
-                     <div className="flex-1 w-full">
-                         <label className="flex flex-col items-center justify-center w-full h-16 border-2 border-green-300 border-dashed rounded-lg cursor-pointer bg-green-50 hover:bg-green-100">
-                             <div className="flex items-center gap-2 text-green-700">
-                                 <Icon name="upload-cloud" />
-                                 <span className="font-medium text-sm">{file ? file.name : "点击上传测试报告 (.xlsx)"}</span>
-                             </div>
-                             <input type="file" className="hidden" accept=".xlsx" onChange={e => handleFile(e.target.files[0])} />
-                         </label>
-                     </div>
-                 </div>
-                 <div className="text-center mt-2 text-sm text-gray-400">{status}</div>
-             </div>
-
-             {parsedData && (
-                 <div className="flex justify-between items-center mb-6">
-                     <div className="flex gap-3">
-                         <button 
-                             onClick={runAIAnalysis} 
-                             disabled={aiStatus === 'loading'}
-                             className={`btn px-4 py-2 rounded-lg flex items-center gap-2 shadow-md text-white transition ${aiStatus === 'loading' ? 'bg-gray-400 cursor-not-allowed' : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700'}`}
-                         >
-                             {aiStatus === 'loading' ? '分析中...' : <><Icon name="sparkles" /> ✨ AI 智能分析</>}
-                         </button>
-                     </div>
-                     <div className="flex gap-3">
-                         <button onClick={sendEmail} className="btn bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-gray-50 shadow-sm">
-                             <Icon name="mail" /> 起草邮件
-                         </button>
-                     </div>
-                 </div>
-             )}
-
-             {/* AI 结果展示区 */}
-             {aiResult && (
-                 <div className="bg-gradient-to-r from-purple-50 to-indigo-50 rounded-xl border border-purple-100 p-6 mb-8 shadow-sm">
-                     <h3 className="font-bold text-purple-800 flex items-center gap-2 mb-4">
-                         <Icon name="sparkles" className="text-purple-600" /> AI 评估报告
-                     </h3>
-                     <div className="prose max-w-none text-sm" dangerouslySetInnerHTML={{ __html: marked.parse(aiResult) }}></div>
-                 </div>
-             )}
-
-             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                 <ChartCard title="1. 光谱分析 (Spectrum)" canvasRef={specRef} w={800} h={600} suffix="spec" onDownload={download} onCopy={copyToClipboard} />
-                 <ChartCard title="2. PPFD 热力图 (Heatmap)" canvasRef={ppfdRef} w={800} h={500} suffix="ppfd" onDownload={download} onCopy={copyToClipboard} />
-                 <ChartCard title="3. 光照锥形图 (Cone)" canvasRef={coneRef} w={600} h={700} suffix="cone" onDownload={download} onCopy={copyToClipboard} />
-             </div>
-         </div>
-     );
- }
-
- function ChartCard({ title, canvasRef, w, h, suffix, onDownload, onCopy }) {
-     return (
-         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
-             <div className="p-4 border-b border-gray-50 flex justify-between items-center bg-gray-50">
-                 <h3 className="font-bold text-gray-700 text-sm flex items-center gap-2">
-                     <Icon name="bar-chart-2" size={16} /> {title}
-                 </h3>
-                 <div className="flex gap-2">
-                     <button onClick={() => onCopy(canvasRef)} className="p-1.5 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded" title="复制">
-                         <Icon name="copy" size={16} />
-                     </button>
-                     <button onClick={() => onDownload(canvasRef, suffix)} className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded" title="下载">
-                         <Icon name="download" size={16} />
-                     </button>
-                 </div>
-             </div>
-             <div className="p-4 bg-gray-100 flex-1 flex items-center justify-center">
-                 <div className="canvas-container w-full">
-                     <canvas ref={canvasRef} width={w} height={h} className="w-full h-auto block"></canvas>
-                 </div>
-             </div>
-         </div>
-     );
- }
-
- const root = ReactDOM.createRoot(document.getElementById('root'));
- root.render(<App />);
-
-
-</script>
-
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
 </body>
 </html>
-
